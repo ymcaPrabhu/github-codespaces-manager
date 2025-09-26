@@ -124,10 +124,10 @@ list_codespaces() {
     log_title "Available GitHub Codespaces (Names Only)"
     echo -e "${GRAY}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
-    # Show only codespace names
-    if gh codespace list --json name 2>/dev/null | jq -r '.[].name' 2>/dev/null; then
+    # Show codespace names with repositories
+    if gh codespace list --json name,repository 2>/dev/null | jq -r '.[] | .name + " (" + .repository.full_name + ")"' 2>/dev/null; then
         return 0
-    elif gh codespace list 2>/dev/null | awk '{print $1}' | tail -n +2; then
+    elif gh codespace list 2>/dev/null | awk '{print $1 " (" $4 ")"}'; then
         return 0
     else
         log_error "Failed to list codespaces. Please authenticate with 'gh auth login'"
@@ -141,11 +141,11 @@ select_codespace() {
     log_title "Select Codespace - $purpose"
     echo -e "${GRAY}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
-    # Show available codespaces (names only)
-    echo -e "${WHITE}${BOLD}Available codespace names:${NC}"
-    if gh codespace list --json name 2>/dev/null | jq -r '.[].name' 2>/dev/null; then
+    # Show available codespaces with repositories
+    echo -e "${WHITE}${BOLD}Available codespaces (name - repository):${NC}"
+    if gh codespace list --json name,repository 2>/dev/null | jq -r '.[] | .name + " (" + .repository.full_name + ")"' 2>/dev/null; then
         :
-    elif gh codespace list 2>/dev/null | awk '{print $1}' | tail -n +2; then
+    elif gh codespace list 2>/dev/null | awk '{print $1 " (" $4 ")"}'; then
         :
     else
         log_error "Failed to fetch codespaces. Please check your authentication."
@@ -153,8 +153,9 @@ select_codespace() {
     fi
 
     echo ""
-    log_prompt "Enter the exact NAME from the list above:"
-    read -p "${CYAN}Codespace name${NC} ${GRAY}→${NC} " codespace_name
+    log_prompt "Enter the exact codespace NAME (not the repository) from the list above:"
+    printf "${CYAN}Codespace name${NC} ${GRAY}→${NC} "
+    read codespace_name
 
     if [[ -n "$codespace_name" ]]; then
         echo "$codespace_name"
@@ -216,7 +217,8 @@ create_codespace() {
                 log_warning "Repository doesn't exist. Creating: $repo"
 
                 log_prompt "Create repository '$repo'? [y/n/exit]:"
-                read -p "${CYAN}Choice${NC} ${GRAY}→${NC} " create_choice
+                printf "${CYAN}Choice${NC} ${GRAY}→${NC} "
+                read create_choice
 
                 case "$create_choice" in
                     "y"|"yes"|"Y"|"YES")
@@ -743,9 +745,10 @@ quick_setup_workflow() {
         fi
 
         if [[ -z "$codespace_name" ]]; then
-            log_info "Please manually enter the codespace name from the list above:"
+            log_info "Please manually enter the codespace name (not the repository) from the list above:"
             gh codespace list --repo "$repo" 2>/dev/null
-            read -p "${CYAN}Codespace name${NC} ${GRAY}→${NC} " codespace_name
+            printf "${CYAN}Codespace name${NC} ${GRAY}→${NC} "
+            read codespace_name
         fi
 
         if [[ -n "$codespace_name" ]]; then
@@ -789,7 +792,8 @@ bulk_operations() {
             log_warning "This operation requires manual confirmation for each codespace"
             gh codespace list 2>/dev/null || log_error "Failed to list codespaces"
             log_prompt "Enter codespace names to stop (space-separated) or 'skip':"
-            read -p "${CYAN}Codespaces${NC} ${GRAY}→${NC} " codespace_names
+            printf "${CYAN}Codespaces${NC} ${GRAY}→${NC} "
+            read codespace_names
 
             if [[ "$codespace_names" != "skip" && -n "$codespace_names" ]]; then
                 for cs in $codespace_names; do
@@ -803,7 +807,8 @@ bulk_operations() {
             log_warning "This will show all codespaces for selective deletion"
             gh codespace list
             log_prompt "Enter codespace names to delete (space-separated) or 'cancel':"
-            read -p "${CYAN}Codespaces${NC} ${GRAY}→${NC} " codespace_names
+            printf "${CYAN}Codespaces${NC} ${GRAY}→${NC} "
+            read codespace_names
 
             if [[ "$codespace_names" != "cancel" && -n "$codespace_names" ]]; then
                 for cs in $codespace_names; do
@@ -940,6 +945,17 @@ main() {
         log_info "Please run: ${BOLD}gh auth login${NC}"
         exit 1
     fi
+
+    # Display available codespaces at startup
+    echo -e "${WHITE}${BOLD}Available codespaces (name - repository):${NC}"
+    if gh codespace list --json name,repository 2>/dev/null | jq -r '.[] | .name + " (" + .repository.full_name + ")"' 2>/dev/null; then
+        :
+    elif gh codespace list 2>/dev/null | awk '{print $1 " (" $4 ")"}'; then
+        :
+    else
+        log_error "Failed to fetch codespaces. Please check your authentication."
+    fi
+    echo ""
 
     # Main program loop
     while true; do
