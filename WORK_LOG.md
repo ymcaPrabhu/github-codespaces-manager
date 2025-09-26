@@ -5,9 +5,13 @@
 ### Tasks Completed:
 - Created WORK_LOG.md for persistent session tracking
 - Set up system to remember work between sessions
+- Fixed color codes appearing before user input in setupdev alias script
+- Modified codespace and repository listings to show only names and expected input format
 
 ### Current Status:
 - Established persistent tracking system
+- Fixed setupdev script color formatting issue
+- Improved user interface to show only relevant names for selections
 - Ready for new tasks and projects
 
 ### Notes:
