@@ -1486,7 +1486,25 @@ class CodespacesManager:
             return
 
         print(f"{Colors.GREEN}✓ Repository validated{Colors.RESET}")
-        branch = self.get_input("Branch", self.config.default_branch, required=False)
+
+        # Detect repository's default branch
+        print(f"{Colors.CYAN}Detecting default branch...{Colors.RESET}")
+        branch_success, branch_output = self.github.run_gh_command(['repo', 'view', repo, '--json', 'defaultBranchRef'])
+
+        default_branch = self.config.default_branch  # fallback
+        if branch_success and branch_output.strip():
+            try:
+                import json
+                branch_data = json.loads(branch_output)
+                if branch_data.get('defaultBranchRef', {}).get('name'):
+                    default_branch = branch_data['defaultBranchRef']['name']
+                    print(f"{Colors.GREEN}✓ Detected default branch: {default_branch}{Colors.RESET}")
+            except (json.JSONDecodeError, KeyError):
+                print(f"{Colors.YELLOW}⚠ Could not detect default branch, using: {default_branch}{Colors.RESET}")
+        else:
+            print(f"{Colors.YELLOW}⚠ Could not detect default branch, using: {default_branch}{Colors.RESET}")
+
+        branch = self.get_input("Branch", default_branch, required=False)
         machine = self.get_input("Machine type", self.config.default_machine_type, required=False)
         region = self.get_input("Region", self.config.default_region, required=False)
 
