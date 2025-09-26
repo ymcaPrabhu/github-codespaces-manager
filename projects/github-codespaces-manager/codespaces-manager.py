@@ -392,6 +392,7 @@ class CodespacesManager:
             print("7. Transfer repository")
             print("0. Back to main menu")
             print()
+            print("Press Enter to continue...")
 
             choice = input(f"{Colors.BLUE}Choose an option: {Colors.RESET}").strip()
 
@@ -1114,6 +1115,60 @@ class CodespacesManager:
 
         input("Press Enter to continue...")
 
+    def get_repository_selection(self, operation_name="Select repository"):
+        """Get repository selection from numbered list"""
+        print(f"\n{Colors.GREEN}{operation_name}{Colors.RESET}")
+
+        # Get repository list
+        success, output = self.github.run_gh_command(['repo', 'list', '--limit', '50', '--json', 'name,owner'])
+
+        if not success:
+            print(f"{Colors.RED}✗ Failed to fetch repositories: {output}{Colors.RESET}")
+            input("Press Enter to continue...")
+            return None
+
+        try:
+            import json
+            repos = json.loads(output) if output.strip() else []
+
+            if not repos:
+                print(f"{Colors.YELLOW}No repositories found.{Colors.RESET}")
+                input("Press Enter to continue...")
+                return None
+
+            print(f"\n{Colors.CYAN}Available repositories:{Colors.RESET}")
+            for i, repo in enumerate(repos, 1):
+                owner = repo.get('owner', {}).get('login', 'Unknown') if isinstance(repo.get('owner'), dict) else repo.get('owner', 'Unknown')
+                name = repo.get('name', 'Unknown')
+                print(f"{i}. {owner}/{name}")
+
+            print("0. Cancel")
+            print()
+
+            while True:
+                try:
+                    choice = input(f"{Colors.BLUE}Choose repository (1-{len(repos)}): {Colors.RESET}").strip()
+
+                    if choice == '0':
+                        return None
+
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(repos):
+                        selected_repo = repos[idx]
+                        owner = selected_repo.get('owner', {}).get('login', 'Unknown') if isinstance(selected_repo.get('owner'), dict) else selected_repo.get('owner', 'Unknown')
+                        name = selected_repo.get('name', 'Unknown')
+                        return f"{owner}/{name}"
+                    else:
+                        print(f"{Colors.RED}Invalid choice. Please enter 1-{len(repos)} or 0 to cancel.{Colors.RESET}")
+
+                except ValueError:
+                    print(f"{Colors.RED}Invalid input. Please enter a number.{Colors.RESET}")
+
+        except json.JSONDecodeError:
+            print(f"{Colors.RED}✗ Failed to parse repository list{Colors.RESET}")
+            input("Press Enter to continue...")
+            return None
+
     # Repository operations
     def create_repository(self):
         """Create a new repository"""
@@ -1166,7 +1221,10 @@ class CodespacesManager:
 
     def clone_repository(self):
         """Clone a repository"""
-        repo = self.get_input("Repository (owner/name or URL)")
+        repo = self.get_repository_selection("Select repository to clone")
+
+        if not repo:
+            return
 
         success, output = self.github.run_gh_command(['repo', 'clone', repo])
 
@@ -1181,7 +1239,10 @@ class CodespacesManager:
 
     def fork_repository(self):
         """Fork a repository"""
-        repo = self.get_input("Repository to fork (owner/name)")
+        repo = self.get_repository_selection("Select repository to fork")
+
+        if not repo:
+            return
 
         success, output = self.github.run_gh_command(['repo', 'fork', repo])
 
@@ -1197,7 +1258,10 @@ class CodespacesManager:
 
     def delete_repository(self):
         """Delete a repository"""
-        repo = self.get_input("Repository to delete (owner/name)")
+        repo = self.get_repository_selection("Select repository to delete")
+
+        if not repo:
+            return
 
         print(f"{Colors.RED}WARNING: This will permanently delete the repository!{Colors.RESET}")
         if self.confirm_action(f"Delete repository '{repo}'?"):
@@ -1214,7 +1278,10 @@ class CodespacesManager:
 
     def archive_repository(self):
         """Archive a repository"""
-        repo = self.get_input("Repository to archive (owner/name)")
+        repo = self.get_repository_selection("Select repository to archive")
+
+        if not repo:
+            return
 
         success, output = self.github.run_gh_command(['repo', 'archive', repo])
 
@@ -1229,7 +1296,23 @@ class CodespacesManager:
 
     def transfer_repository(self):
         """Transfer repository to another owner"""
-        print(f"{Colors.YELLOW}Repository transfer - Coming soon!{Colors.RESET}")
+        repo = self.get_repository_selection("Select repository to transfer")
+
+        if not repo:
+            return
+
+        new_owner = self.get_input("New owner username/organization")
+
+        if self.confirm_action(f"Transfer repository '{repo}' to '{new_owner}'?"):
+            success, output = self.github.run_gh_command(['repo', 'transfer', repo, new_owner])
+
+            if success:
+                print(f"\n{Colors.GREEN}✓ Repository transfer initiated successfully!{Colors.RESET}")
+                self.logger.info(f"Repository transferred: {repo} to {new_owner}")
+            else:
+                print(f"\n{Colors.RED}✗ Failed to transfer repository: {output}{Colors.RESET}")
+                self.logger.error(f"Failed to transfer repository: {output}")
+
         input("Press Enter to continue...")
 
     # Branch operations
@@ -1361,7 +1444,33 @@ class CodespacesManager:
         """Create a new codespace"""
         print(f"\n{Colors.GREEN}Create New Codespace{Colors.RESET}")
 
+        # Show available repositories
+        print(f"\n{Colors.CYAN}Your available repositories:{Colors.RESET}")
+        success, output = self.github.run_gh_command(['repo', 'list', '--limit', '10'])
+
+        if success and output.strip():
+            repos = []
+            for line in output.strip().split('\n'):
+                if line.strip():
+                    repo_name = line.split('\t')[0]
+                    repos.append(repo_name)
+                    print(f"• {repo_name}")
+            print()
+        else:
+            print("Could not fetch repository list")
+
         repo = self.get_input("Repository (owner/name)")
+
+        # Validate repository exists
+        print(f"{Colors.CYAN}Validating repository...{Colors.RESET}")
+        validate_success, validate_output = self.github.run_gh_command(['repo', 'view', repo])
+        if not validate_success:
+            print(f"{Colors.RED}✗ Repository not found or not accessible: {repo}{Colors.RESET}")
+            print(f"Please check the repository name and your permissions.")
+            input("Press Enter to continue...")
+            return
+
+        print(f"{Colors.GREEN}✓ Repository validated{Colors.RESET}")
         branch = self.get_input("Branch", self.config.default_branch, required=False)
         machine = self.get_input("Machine type", self.config.default_machine_type, required=False)
         region = self.get_input("Region", self.config.default_region, required=False)
