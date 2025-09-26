@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Codespaces Manager - Web Interface</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .codespace-card { transition: all 0.3s ease; }
+        .codespace-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.15); }
+        .pulse-dot { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="codespacesApp()" x-init="init()">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center py-4">
+                <div class="flex items-center space-x-3">
+                    <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                        <span class="text-white font-bold">🚀</span>
+                    </div>
+                    <h1 class="text-xl font-semibold text-gray-900">GitHub Codespaces Manager</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-2 h-2 bg-green-500 rounded-full pulse-dot" x-show="connected"></div>
+                        <div class="w-2 h-2 bg-red-500 rounded-full" x-show="!connected"></div>
+                        <span class="text-sm text-gray-600" x-text="connected ? 'Connected' : 'Disconnected'"></span>
+                    </div>
+                    <button @click="refreshData()" class="px-3 py-1 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700">
+                        Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Dashboard Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <span class="text-blue-600">📦</span>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm font-medium text-gray-600">Total Codespaces</p>
+                        <p class="text-2xl font-semibold text-gray-900" x-text="metrics.totalCodespaces || '0'"></p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                        <span class="text-green-600">▶️</span>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm font-medium text-gray-600">Running</p>
+                        <p class="text-2xl font-semibold text-gray-900" x-text="metrics.runningCodespaces || '0'"></p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-yellow-100 rounded-lg flex items-center justify-center">
+                        <span class="text-yellow-600">💰</span>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm font-medium text-gray-600">Cost/Hour</p>
+                        <p class="text-2xl font-semibold text-gray-900" x-text="'$' + (metrics.totalHourlyCost || '0.00')"></p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                        <span class="text-purple-600">💾</span>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm font-medium text-gray-600">Storage</p>
+                        <p class="text-2xl font-semibold text-gray-900" x-text="(metrics.estimatedStorageGb || '0') + ' GB'"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex flex-wrap gap-4 mb-6">
+            <button @click="showCreateModal = true" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center space-x-2">
+                <span>➕</span>
+                <span>Create Codespace</span>
+            </button>
+            <button @click="showLanguageSetup = true" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center space-x-2">
+                <span>🔧</span>
+                <span>Setup Languages</span>
+            </button>
+            <button @click="showMetrics = true" class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 flex items-center space-x-2">
+                <span>📊</span>
+                <span>View Metrics</span>
+            </button>
+        </div>
+
+        <!-- Codespaces Grid -->
+        <div class="bg-white rounded-lg shadow">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Your Codespaces</h3>
+            </div>
+            <div class="p-6">
+                <div x-show="loading" class="text-center py-8">
+                    <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    <p class="mt-2 text-gray-600">Loading codespaces...</p>
+                </div>
+
+                <div x-show="!loading && codespaces.length === 0" class="text-center py-8">
+                    <div class="text-6xl mb-4">📦</div>
+                    <h3 class="text-lg font-medium text-gray-900 mb-2">No codespaces found</h3>
+                    <p class="text-gray-600 mb-4">Create your first codespace to get started</p>
+                    <button @click="showCreateModal = true" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                        Create Codespace
+                    </button>
+                </div>
+
+                <div x-show="!loading && codespaces.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <template x-for="codespace in codespaces" :key="codespace.name">
+                        <div class="codespace-card border border-gray-200 rounded-lg p-4 hover:shadow-lg">
+                            <div class="flex items-start justify-between mb-3">
+                                <h4 class="font-medium text-gray-900 truncate" x-text="codespace.display_name || codespace.name"></h4>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+                                      :class="codespace.state === 'Available' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'"
+                                      x-text="codespace.state"></span>
+                            </div>
+
+                            <p class="text-sm text-gray-600 mb-2" x-text="codespace.repository"></p>
+                            <p class="text-xs text-gray-500 mb-3" x-text="codespace.machine_type"></p>
+
+                            <div class="flex space-x-2">
+                                <button @click="startCodespace(codespace.name)"
+                                        x-show="codespace.state !== 'Available'"
+                                        class="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700">
+                                    Start
+                                </button>
+                                <button @click="stopCodespace(codespace.name)"
+                                        x-show="codespace.state === 'Available'"
+                                        class="px-3 py-1 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700">
+                                    Stop
+                                </button>
+                                <button @click="deleteCodespace(codespace.name)"
+                                        class="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700">
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- Real-time Updates -->
+        <div x-show="notifications.length > 0" class="fixed bottom-4 right-4 space-y-2">
+            <template x-for="notification in notifications" :key="notification.id">
+                <div class="bg-white border border-gray-200 rounded-lg shadow-lg p-4 max-w-sm"
+                     x-show="notification.show"
+                     x-transition>
+                    <div class="flex items-center space-x-3">
+                        <div class="flex-shrink-0">
+                            <span x-show="notification.type === 'success'" class="text-green-600">✅</span>
+                            <span x-show="notification.type === 'error'" class="text-red-600">❌</span>
+                            <span x-show="notification.type === 'info'" class="text-blue-600">ℹ️</span>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-sm font-medium text-gray-900" x-text="notification.title"></p>
+                            <p class="text-sm text-gray-600" x-text="notification.message"></p>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </main>
+
+    <!-- Create Codespace Modal -->
+    <div x-show="showCreateModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full" x-cloak>
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <h3 class="text-lg font-bold text-gray-900 mb-4">Create New Codespace</h3>
+            <form @submit.prevent="createCodespace()">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Repository</label>
+                    <select x-model="createForm.repository" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Select repository...</option>
+                        <template x-for="repo in repositories" :key="repo.name">
+                            <option :value="repo.name" x-text="repo.name"></option>
+                        </template>
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Machine Type</label>
+                    <select x-model="createForm.machine_type" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="basicLinux32gb">Basic (2-core, 4GB RAM) - $0.18/hr</option>
+                        <option value="standardLinux32gb">Standard (4-core, 8GB RAM) - $0.36/hr</option>
+                        <option value="premiumLinux64gb">Premium (8-core, 16GB RAM) - $0.72/hr</option>
+                    </select>
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button type="button" @click="showCreateModal = false" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400">
+                        Cancel
+                    </button>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                        Create
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function codespacesApp() {
+            return {
+                // State
+                connected: false,
+                loading: true,
+                codespaces: [],
+                repositories: [],
+                metrics: {},
+                notifications: [],
+
+                // UI State
+                showCreateModal: false,
+                showLanguageSetup: false,
+                showMetrics: false,
+
+                // Forms
+                createForm: {
+                    repository: '',
+                    branch: 'main',
+                    machine_type: 'basicLinux32gb',
+                    region: 'EuropeWest'
+                },
+
+                // Initialize
+                async init() {
+                    console.log('🚀 Initializing GitHub Codespaces Manager Web Interface');
+                    this.setupWebSocket();
+                    await this.loadData();
+                },
+
+                // WebSocket Connection
+                setupWebSocket() {
+                    try {
+                        const wsUrl = `ws://${window.location.hostname}:8000/ws`;
+                        this.ws = new WebSocket(wsUrl);
+
+                        this.ws.onopen = () => {
+                            this.connected = true;
+                            this.addNotification('success', 'Connected', 'Real-time updates enabled');
+                        };
+
+                        this.ws.onmessage = (event) => {
+                            const data = JSON.parse(event.data);
+                            this.handleWebSocketMessage(data);
+                        };
+
+                        this.ws.onclose = () => {
+                            this.connected = false;
+                            this.addNotification('error', 'Disconnected', 'Real-time updates disabled');
+                        };
+                    } catch (error) {
+                        console.log('WebSocket not available, using polling');
+                        this.connected = false;
+                    }
+                },
+
+                // Load Data
+                async loadData() {
+                    this.loading = true;
+                    try {
+                        await Promise.all([
+                            this.loadCodespaces(),
+                            this.loadRepositories(),
+                            this.loadMetrics()
+                        ]);
+                    } catch (error) {
+                        this.addNotification('error', 'Error', 'Failed to load data');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                // API Calls (Mock for now, will connect to real API)
+                async loadCodespaces() {
+                    // Mock data for demonstration
+                    this.codespaces = [
+                        {
+                            name: 'musical-engine-7v7v95p4wfpjr7',
+                            display_name: 'musical-engine-7v7v95p4wfpjr7',
+                            repository: 'ymcaPrabhu/abc',
+                            state: 'Available',
+                            machine_type: 'basicLinux32gb',
+                            cost_estimate: 0.18
+                        },
+                        {
+                            name: 'special-bassoon-676jjvvxv9259jp',
+                            display_name: 'special-bassoon-676jjvvxv9259jp',
+                            repository: 'ymcaPrabhu/Cyber-prabhu',
+                            state: 'Shutdown',
+                            machine_type: 'basicLinux32gb',
+                            cost_estimate: 0.18
+                        }
+                    ];
+                },
+
+                async loadRepositories() {
+                    // Mock data
+                    this.repositories = [
+                        { name: 'ymcaPrabhu/github-codespaces-manager' },
+                        { name: 'ymcaPrabhu/abc' },
+                        { name: 'ymcaPrabhu/Cyber-prabhu' },
+                        { name: 'ymcaPrabhu/vibe' }
+                    ];
+                },
+
+                async loadMetrics() {
+                    const running = this.codespaces.filter(cs => cs.state === 'Available').length;
+                    this.metrics = {
+                        totalCodespaces: this.codespaces.length,
+                        runningCodespaces: running,
+                        totalHourlyCost: (this.codespaces.length * 0.18).toFixed(2),
+                        estimatedStorageGb: (this.codespaces.length * 1.5).toFixed(1)
+                    };
+                },
+
+                // Actions
+                async refreshData() {
+                    await this.loadData();
+                    this.addNotification('info', 'Refreshed', 'Data updated successfully');
+                },
+
+                async createCodespace() {
+                    if (!this.createForm.repository) {
+                        this.addNotification('error', 'Error', 'Please select a repository');
+                        return;
+                    }
+
+                    this.addNotification('info', 'Creating', 'Creating codespace...');
+                    this.showCreateModal = false;
+
+                    // Simulate API call
+                    setTimeout(() => {
+                        this.addNotification('success', 'Created', 'Codespace created successfully');
+                        this.refreshData();
+                    }, 2000);
+                },
+
+                async startCodespace(name) {
+                    this.addNotification('info', 'Starting', `Starting ${name}...`);
+
+                    // Update UI immediately
+                    const codespace = this.codespaces.find(cs => cs.name === name);
+                    if (codespace) codespace.state = 'Starting';
+
+                    // Simulate API call
+                    setTimeout(() => {
+                        if (codespace) codespace.state = 'Available';
+                        this.addNotification('success', 'Started', `${name} is now running`);
+                    }, 3000);
+                },
+
+                async stopCodespace(name) {
+                    this.addNotification('info', 'Stopping', `Stopping ${name}...`);
+
+                    const codespace = this.codespaces.find(cs => cs.name === name);
+                    if (codespace) codespace.state = 'Stopping';
+
+                    setTimeout(() => {
+                        if (codespace) codespace.state = 'Shutdown';
+                        this.addNotification('success', 'Stopped', `${name} has been stopped`);
+                    }, 2000);
+                },
+
+                async deleteCodespace(name) {
+                    if (!confirm(`Are you sure you want to delete ${name}?`)) return;
+
+                    this.addNotification('info', 'Deleting', `Deleting ${name}...`);
+
+                    setTimeout(() => {
+                        this.codespaces = this.codespaces.filter(cs => cs.name !== name);
+                        this.addNotification('success', 'Deleted', `${name} has been deleted`);
+                        this.loadMetrics();
+                    }, 2000);
+                },
+
+                // WebSocket Message Handling
+                handleWebSocketMessage(data) {
+                    switch (data.type) {
+                        case 'operation_update':
+                            this.addNotification('info', 'Update', data.message);
+                            break;
+                        case 'codespace_update':
+                            this.refreshData();
+                            break;
+                        case 'error':
+                            this.addNotification('error', 'Error', data.error);
+                            break;
+                    }
+                },
+
+                // Notifications
+                addNotification(type, title, message) {
+                    const id = Date.now();
+                    const notification = { id, type, title, message, show: true };
+                    this.notifications.push(notification);
+
+                    setTimeout(() => {
+                        notification.show = false;
+                        setTimeout(() => {
+                            this.notifications = this.notifications.filter(n => n.id !== id);
+                        }, 300);
+                    }, 5000);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
