@@ -1265,7 +1265,22 @@ class CodespacesManager:
 
         print(f"{Colors.RED}WARNING: This will permanently delete the repository!{Colors.RESET}")
         if self.confirm_action(f"Delete repository '{repo}'?"):
-            success, output = self.github.run_gh_command(['repo', 'delete', repo, '--confirm'])
+            # First try with --yes flag
+            success, output = self.github.run_gh_command(['repo', 'delete', repo, '--yes'])
+
+            if not success and "delete_repo" in output:
+                print(f"\n{Colors.YELLOW}Repository deletion requires additional permissions.{Colors.RESET}")
+                print(f"To enable repository deletion, run: {Colors.CYAN}gh auth refresh -h github.com -s delete_repo{Colors.RESET}")
+
+                if self.confirm_action("Attempt to refresh GitHub CLI permissions now?"):
+                    print(f"{Colors.CYAN}Refreshing GitHub CLI permissions...{Colors.RESET}")
+                    auth_success, auth_output = self.github.run_gh_command(['auth', 'refresh', '-h', 'github.com', '-s', 'delete_repo'])
+
+                    if auth_success:
+                        print(f"{Colors.GREEN}✓ Permissions refreshed. Attempting deletion again...{Colors.RESET}")
+                        success, output = self.github.run_gh_command(['repo', 'delete', repo, '--yes'])
+                    else:
+                        print(f"{Colors.RED}✗ Failed to refresh permissions: {auth_output}{Colors.RESET}")
 
             if success:
                 print(f"\n{Colors.GREEN}✓ Repository deleted successfully!{Colors.RESET}")
